@@ -35,23 +35,17 @@ select,button{
 </head>
 <body>
 
-<h2>Abalone Pro AI</h2>
+<h2>Abalone Pro AI（AI=黒）</h2>
 
 <div class="controls">
 AIレベル:
 <select id="level">
-<option value="1">1</option>
-<option value="2">2</option>
-<option value="3">3</option>
-<option value="4">4</option>
-<option value="5" selected>5</option>
-<option value="6">6</option>
-<option value="7">7</option>
-<option value="8">8</option>
-<option value="9">9</option>
-<option value="10">10</option>
+<option>1</option><option>2</option><option>3</option>
+<option>4</option><option selected>5</option>
+<option>6</option><option>7</option>
+<option>8</option><option>9</option>
+<option>10</option>
 </select>
-
 <button onclick="resetGame()">リセット</button>
 </div>
 
@@ -70,7 +64,7 @@ const SIZE=35;
 const RADIUS=20;
 
 let board=[];
-let turn=1;
+let turn=-1; // 黒(AI)先手
 let selected=[];
 let score={1:0,"-1":0};
 
@@ -82,8 +76,8 @@ function initBoard(){
     for(let r=-4;r<=4;r++){
       if(Math.abs(q+r)<=4){
         let v=0;
-        if(r<=-3) v=1;
-        if(r>=3) v=-1;
+        if(r<=-3) v=-1; // 黒(AI)
+        if(r>=3) v=1;   // 白(プレイヤー)
         board.push({q,r,val:v});
       }
     }
@@ -117,8 +111,8 @@ function draw(){
 
     ctx.beginPath();
     ctx.arc(x,y,RADIUS,0,Math.PI*2);
-    if(c.val===1) ctx.fillStyle="#111";
-    else if(c.val===-1) ctx.fillStyle="#eee";
+    if(c.val===-1) ctx.fillStyle="#111";
+    else if(c.val===1) ctx.fillStyle="#eee";
     else ctx.fillStyle="#666";
     ctx.fill();
 
@@ -129,8 +123,10 @@ function draw(){
     }
   });
 
-  document.getElementById("turn").innerText=turn===1?"黒のターン":"白のターン";
-  document.getElementById("score").innerText=`黒 ${score[1]} - 白 ${score[-1]}`;
+  document.getElementById("turn").innerText=
+    turn===-1?"黒（AI）のターン":"白（あなた）のターン";
+  document.getElementById("score").innerText=
+    `黒 ${score[-1]} - 白 ${score[1]}`;
 }
 
 function evaluate(b){
@@ -235,13 +231,20 @@ function playSound(){
   const ctxAudio=new (window.AudioContext||window.webkitAudioContext)();
   const osc=ctxAudio.createOscillator();
   osc.type="sine";
-  osc.frequency.value=300;
+  osc.frequency.value=250;
   osc.connect(ctxAudio.destination);
   osc.start();
-  osc.stop(ctxAudio.currentTime+0.1);
+  osc.stop(ctxAudio.currentTime+0.08);
 }
 
+/* ===== タッチ・スワイプ操作 ===== */
+
+let swipeStart=null;
+let activePiece=null;
+
 canvas.addEventListener("pointerdown",e=>{
+  if(turn!==1) return;
+
   const rect=canvas.getBoundingClientRect();
   const x=e.clientX-rect.left;
   const y=e.clientY-rect.top;
@@ -249,51 +252,72 @@ canvas.addEventListener("pointerdown",e=>{
   board.forEach(c=>{
     const p=hexToPixel(c.q,c.r);
     if(Math.hypot(x-p.x,y-p.y)<RADIUS && c.val===1){
+      activePiece=c;
       selected=[c];
+      swipeStart={x,y};
     }
   });
   draw();
 });
 
 canvas.addEventListener("pointerup",e=>{
-  if(selected.length===0) return;
+  if(!activePiece || turn!==1) return;
 
   const rect=canvas.getBoundingClientRect();
-  const x=e.clientX-rect.left;
-  const y=e.clientY-rect.top;
+  const endX=e.clientX-rect.left;
+  const endY=e.clientY-rect.top;
 
-  let moved=false;
+  const dx=endX-swipeStart.x;
+  const dy=endY-swipeStart.y;
+
+  if(Math.hypot(dx,dy)<20){
+    selected=[];
+    activePiece=null;
+    draw();
+    return;
+  }
+
+  let bestDir=null;
+  let bestDot=-999999;
 
   dirs.forEach(d=>{
-    let c=selected[0];
-    let t=getCell(c.q+d[0],c.r+d[1]);
-    if(t && t.val===0){
-      t.val=1;
-      c.val=0;
-      moved=true;
+    const v=hexToPixel(d[0],d[1]);
+    const dot=dx*v.x+dy*v.y;
+    if(dot>bestDot){
+      bestDot=dot;
+      bestDir=d;
     }
   });
 
-  if(moved){
-    playSound();
-    turn=-1;
-    draw();
-    setTimeout(aiMove,300);
+  if(bestDir){
+    let target=getCell(activePiece.q+bestDir[0],activePiece.r+bestDir[1]);
+    if(target && target.val===0){
+      target.val=1;
+      activePiece.val=0;
+      playSound();
+      turn=-1;
+      draw();
+      setTimeout(aiMove,400);
+    }
   }
 
   selected=[];
+  activePiece=null;
+  draw();
 });
 
 function resetGame(){
   score={1:0,"-1":0};
-  turn=1;
+  turn=-1;
   initBoard();
   document.getElementById("log").innerHTML="";
   draw();
+  setTimeout(aiMove,500);
 }
 
 initBoard();
 draw();
+setTimeout(aiMove,500);
 </script>
 </body>
 </html>
