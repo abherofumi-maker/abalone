@@ -1,0 +1,299 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<title>Abalone Pro AI</title>
+<style>
+body{
+  margin:0;
+  background:#111;
+  color:white;
+  font-family:sans-serif;
+  text-align:center;
+}
+canvas{
+  background:#222;
+  border-radius:20px;
+  touch-action:none;
+}
+.controls{
+  margin:10px;
+}
+#log{
+  height:120px;
+  overflow:auto;
+  background:#000;
+  padding:5px;
+  font-size:12px;
+  text-align:left;
+}
+select,button{
+  padding:6px;
+  margin:4px;
+}
+</style>
+</head>
+<body>
+
+<h2>Abalone Pro AI</h2>
+
+<div class="controls">
+AIレベル:
+<select id="level">
+<option value="1">1</option>
+<option value="2">2</option>
+<option value="3">3</option>
+<option value="4">4</option>
+<option value="5" selected>5</option>
+<option value="6">6</option>
+<option value="7">7</option>
+<option value="8">8</option>
+<option value="9">9</option>
+<option value="10">10</option>
+</select>
+
+<button onclick="resetGame()">リセット</button>
+</div>
+
+<p id="turn"></p>
+<p id="score"></p>
+<canvas id="board" width="720" height="720"></canvas>
+
+<h3>AI思考ログ</h3>
+<div id="log"></div>
+
+<script>
+const canvas=document.getElementById("board");
+const ctx=canvas.getContext("2d");
+
+const SIZE=35;
+const RADIUS=20;
+
+let board=[];
+let turn=1;
+let selected=[];
+let score={1:0,"-1":0};
+
+const dirs=[[1,0],[0,1],[-1,1],[-1,0],[0,-1],[1,-1]];
+
+function initBoard(){
+  board=[];
+  for(let q=-4;q<=4;q++){
+    for(let r=-4;r<=4;r++){
+      if(Math.abs(q+r)<=4){
+        let v=0;
+        if(r<=-3) v=1;
+        if(r>=3) v=-1;
+        board.push({q,r,val:v});
+      }
+    }
+  }
+}
+
+function hexToPixel(q,r){
+  const x=canvas.width/2+SIZE*(Math.sqrt(3)*q+Math.sqrt(3)/2*r);
+  const y=canvas.height/2+SIZE*(3/2*r);
+  return{x,y};
+}
+
+function getCell(q,r){
+  return board.find(c=>c.q===q&&c.r===r);
+}
+
+function cloneBoard(b){
+  return b.map(c=>({q:c.q,r:c.r,val:c.val}));
+}
+
+function draw(){
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+
+  board.forEach(c=>{
+    const {x,y}=hexToPixel(c.q,c.r);
+
+    ctx.beginPath();
+    ctx.arc(x,y,RADIUS+3,0,Math.PI*2);
+    ctx.fillStyle="#555";
+    ctx.fill();
+
+    ctx.beginPath();
+    ctx.arc(x,y,RADIUS,0,Math.PI*2);
+    if(c.val===1) ctx.fillStyle="#111";
+    else if(c.val===-1) ctx.fillStyle="#eee";
+    else ctx.fillStyle="#666";
+    ctx.fill();
+
+    if(selected.includes(c)){
+      ctx.strokeStyle="yellow";
+      ctx.lineWidth=3;
+      ctx.stroke();
+    }
+  });
+
+  document.getElementById("turn").innerText=turn===1?"黒のターン":"白のターン";
+  document.getElementById("score").innerText=`黒 ${score[1]} - 白 ${score[-1]}`;
+}
+
+function evaluate(b){
+  let val=0;
+  b.forEach(c=>{
+    if(c.val===-1){
+      val+=10;
+      val+= (4-Math.abs(c.q)-Math.abs(c.r))*2;
+    }
+    if(c.val===1){
+      val-=10;
+    }
+  });
+  return val;
+}
+
+function getMoves(b,player){
+  let moves=[];
+  b.forEach(c=>{
+    if(c.val===player){
+      dirs.forEach(d=>{
+        let nq=c.q+d[0], nr=c.r+d[1];
+        let target=b.find(x=>x.q===nq&&x.r===nr);
+        if(target && target.val===0){
+          moves.push({from:c,dir:d});
+        }
+      });
+    }
+  });
+  return moves;
+}
+
+function applyMove(b,move,player){
+  let nb=cloneBoard(b);
+  let cell=nb.find(c=>c.q===move.from.q&&c.r===move.from.r);
+  let target=nb.find(c=>c.q===cell.q+move.dir[0]&&c.r===cell.r+move.dir[1]);
+  if(target){
+    target.val=player;
+    cell.val=0;
+  }
+  return nb;
+}
+
+function minimax(b,depth,alpha,beta,maximizing){
+  if(depth===0) return evaluate(b);
+
+  let player=maximizing?-1:1;
+  let moves=getMoves(b,player);
+  if(moves.length===0) return evaluate(b);
+
+  if(maximizing){
+    let maxEval=-9999;
+    for(let m of moves){
+      let evalScore=minimax(applyMove(b,m,player),depth-1,alpha,beta,false);
+      maxEval=Math.max(maxEval,evalScore);
+      alpha=Math.max(alpha,evalScore);
+      if(beta<=alpha) break;
+    }
+    return maxEval;
+  }else{
+    let minEval=9999;
+    for(let m of moves){
+      let evalScore=minimax(applyMove(b,m,player),depth-1,alpha,beta,true);
+      minEval=Math.min(minEval,evalScore);
+      beta=Math.min(beta,evalScore);
+      if(beta<=alpha) break;
+    }
+    return minEval;
+  }
+}
+
+function aiMove(){
+  let depth=parseInt(document.getElementById("level").value);
+  let moves=getMoves(board,-1);
+
+  let bestScore=-9999;
+  let bestMove=null;
+
+  moves.forEach(m=>{
+    let score=minimax(applyMove(board,m,-1),depth,-9999,9999,false);
+    if(score>bestScore){
+      bestScore=score;
+      bestMove=m;
+    }
+  });
+
+  document.getElementById("log").innerHTML+="評価:"+bestScore+"<br>";
+
+  if(bestMove){
+    let cell=getCell(bestMove.from.q,bestMove.from.r);
+    let target=getCell(cell.q+bestMove.dir[0],cell.r+bestMove.dir[1]);
+    target.val=-1;
+    cell.val=0;
+    playSound();
+  }
+
+  turn=1;
+  draw();
+}
+
+function playSound(){
+  const ctxAudio=new (window.AudioContext||window.webkitAudioContext)();
+  const osc=ctxAudio.createOscillator();
+  osc.type="sine";
+  osc.frequency.value=300;
+  osc.connect(ctxAudio.destination);
+  osc.start();
+  osc.stop(ctxAudio.currentTime+0.1);
+}
+
+canvas.addEventListener("pointerdown",e=>{
+  const rect=canvas.getBoundingClientRect();
+  const x=e.clientX-rect.left;
+  const y=e.clientY-rect.top;
+
+  board.forEach(c=>{
+    const p=hexToPixel(c.q,c.r);
+    if(Math.hypot(x-p.x,y-p.y)<RADIUS && c.val===1){
+      selected=[c];
+    }
+  });
+  draw();
+});
+
+canvas.addEventListener("pointerup",e=>{
+  if(selected.length===0) return;
+
+  const rect=canvas.getBoundingClientRect();
+  const x=e.clientX-rect.left;
+  const y=e.clientY-rect.top;
+
+  let moved=false;
+
+  dirs.forEach(d=>{
+    let c=selected[0];
+    let t=getCell(c.q+d[0],c.r+d[1]);
+    if(t && t.val===0){
+      t.val=1;
+      c.val=0;
+      moved=true;
+    }
+  });
+
+  if(moved){
+    playSound();
+    turn=-1;
+    draw();
+    setTimeout(aiMove,300);
+  }
+
+  selected=[];
+});
+
+function resetGame(){
+  score={1:0,"-1":0};
+  turn=1;
+  initBoard();
+  document.getElementById("log").innerHTML="";
+  draw();
+}
+
+initBoard();
+draw();
+</script>
+</body>
+</html>
